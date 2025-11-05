@@ -12,21 +12,14 @@ using namespace std;
 
 int main()
 {
-    string sysPass = "nstu", userSys, password = "nstu1", joke = "пирожковый колледж";
+    string sysPass = "nstu", userSys, password = "nstu1";
     char choice;
 
     cout << "Пароль системы: ";
     getline(cin, userSys);
     while (userSys != sysPass)
     {
-        if (userSys == joke)
-        {
-            cout << "Какой пирожковый колледж, чел?\nОтчислен\n";
-            cout << "       _______\n      /       \\\n     /  НКТП   \\\n    /___________\\\n"
-                    "    |  _    _   |\n    | | |  | |  |\n    | | |  | |  |\n    |_|_|__|_|__|\n"
-                    "Вот на что ты променял НГТУ\n";
-            return -10;
-        }
+
         cout << "Неверный пароль! Введите: ";
         getline(cin, userSys);
     }

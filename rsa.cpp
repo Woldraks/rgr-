@@ -225,9 +225,12 @@ void rsa(string &password)
         }
         catch (const exception &e)
         {
+
             cerr << "Ошибка: " << e.what() << endl;
             clearInputBuffer();
             this_thread::sleep_for(chrono::milliseconds(2000));
+
+            cout << "";
         }
     }
 }
