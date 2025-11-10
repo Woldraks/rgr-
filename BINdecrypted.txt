@@ -1,1 +1,18 @@
-HELLO
+#include <iostream>
+#include <initializer_list>
+
+struct Food {
+    int power = 0;
+};
+
+class Jam : public Food {
+    public:
+    Jam(int power) : power(power) {};
+
+};
+
+int main() {
+    Jam j(10);
+    
+    return 0;
+}

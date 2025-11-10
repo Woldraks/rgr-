@@ -2,6 +2,7 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <limits> // Добавляем для clearInputBuffer
 
 using namespace std;
 
@@ -24,24 +25,31 @@ std::string readFromFile(const std::string &filename)
     string res, line;
     while (getline(f, line))
         res += line + "\n";
+
+    // Убираем последний \n если он есть
+    if (!res.empty() && res.back() == '\n')
+    {
+        res.pop_back();
+    }
     return res;
 }
 
 void clearInputBuffer()
 {
     cin.clear();
-    cin.ignore(256, '\n');
+    cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 }
 
-bool askUser(const string &question)
+bool askUser(const std::string &question)
 {
     string answer;
     cout << question << " (y/n): ";
     getline(cin, answer);
-    return (answer == "y" || answer == "Y" || answer == "yes" || answer == "Yes");
+    return (answer == "y" || answer == "Y" || answer == "yes" || answer == "Yes" ||
+            answer == "д" || answer == "Д" || answer == "да" || answer == "Да");
 }
 
-string getInputFilename(const string &defaultFile, const string &operation)
+std::string getInputFilename(const std::string &defaultFile, const std::string &operation)
 {
     if (askUser("Хотите указать файл для " + operation + "?"))
     {
@@ -53,7 +61,7 @@ string getInputFilename(const string &defaultFile, const string &operation)
     return defaultFile;
 }
 
-string getOutputFilename(const string &defaultFile, const string &operation)
+std::string getOutputFilename(const std::string &defaultFile, const std::string &operation)
 {
     if (askUser("Хотите указать файл для сохранения результата " + operation + "?"))
     {
@@ -65,11 +73,7 @@ string getOutputFilename(const string &defaultFile, const string &operation)
     return defaultFile;
 }
 
-// Определение функции в .cpp файле
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-result"
 void safeSystemCall(const char *command)
 {
     system(command);
 }
-#pragma GCC diagnostic pop

@@ -12,8 +12,6 @@
 
 using namespace std;
 
-// УБИРАЕМ определение safeSystemCall отсюда
-
 bool isPrime(int n)
 {
     if (n <= 1)
@@ -81,48 +79,107 @@ int modInverse(int e, int phi)
     return (x % phi + phi) % phi;
 }
 
-long long modPower(long long b, long long e, long long m)
+long long modPower(long long base, long long exponent, long long modulus)
 {
-    long long r = 1;
-    b %= m;
-    while (e > 0)
+    if (modulus == 1)
+        return 0;
+
+    long long result = 1;
+    base = base % modulus;
+
+    while (exponent > 0)
     {
-        if (e & 1)
-            r = (r * b) % m;
-        e >>= 1;
-        b = (b * b) % m;
+        if (exponent % 2 == 1)
+            result = (result * base) % modulus;
+
+        exponent = exponent >> 1;
+        base = (base * base) % modulus;
     }
-    return r;
+
+    return result;
 }
 
-string rsa_encode(const string &text, int e, int n)
+string rsa_encode(const string &text, int e, long long n)
 {
     string out;
-    for (char c : text)
+    string separator = " ";
+
+    for (size_t i = 0; i < text.size(); ++i)
     {
-        long long m = static_cast<unsigned char>(c);
-        long long c_enc = modPower(m, e, n);
-        out += to_string(c_enc) + " ";
+        unsigned char byte = static_cast<unsigned char>(text[i]);
+        long long c_enc = modPower(byte, e, n);
+        out += to_string(c_enc) + separator;
     }
+
+    // Убираем последний пробел
+    if (!out.empty() && !separator.empty())
+    {
+        out.erase(out.size() - separator.size());
+    }
+
     return out;
 }
 
-string rsa_decode(const string &text, int d, int n)
+string rsa_decode(const string &text, int d, long long n)
 {
     string out;
-    istringstream iss(text);
-    long long num;
-    while (iss >> num)
+    string token;
+
+    for (size_t i = 0; i < text.size();)
     {
-        long long dec = modPower(num, d, n);
-        out += static_cast<char>(dec);
+        // Ищем последовательности цифр
+        if (isdigit(text[i]))
+        {
+            token.clear();
+            while (i < text.size() && isdigit(text[i]))
+            {
+                token += text[i];
+                i++;
+            }
+
+            try
+            {
+                if (!token.empty())
+                {
+                    // Используем long long для больших чисел
+                    long long num = stoll(token);
+
+                    // Проверяем диапазон
+                    if (num < 0 || num >= n)
+                    {
+                        cerr << "Предупреждение: число " << num << " вне диапазона [0, " << n - 1 << "]" << endl;
+                        continue;
+                    }
+
+                    // Дешифруем
+                    long long dec = modPower(num, d, n);
+
+                    if (dec < 0 || dec > 255)
+                    {
+                        cerr << "Ошибка: некорректное значение " << dec << " при дешифровании" << endl;
+                        continue;
+                    }
+
+                    out += static_cast<unsigned char>(dec);
+                }
+            }
+            catch (const exception &e)
+            {
+                cerr << "Ошибка обработки токена '" << token << "': " << e.what() << endl;
+            }
+        }
+        else
+        {
+            i++; // Пропускаем не-цифровые символы
+        }
     }
+
     return out;
 }
 
-bool getCustomKeys(int &e, int &d, int &n)
+bool getCustomKeys(int &e, int &d, long long &n)
 {
-    if (askUser("Хотите ввести свои ключи?"))
+    if (askUser("Хотите ввести свои ключи?  "))
     {
         cout << "Введите открытый ключ e: ";
         cin >> e;
@@ -147,12 +204,21 @@ bool getCustomKeys(int &e, int &d, int &n)
 
 void rsa(string &password)
 {
-    int p = getRandomNumber(5000, 10000), q = getRandomNumber(5000, 10000);
-    int n = p * q, phi = EilerFunc(p) * EilerFunc(q);
+    // Используем большие простые числа для увеличения n
+    int p = getRandomNumber(10000, 30000), q = getRandomNumber(10000, 30000);
+    long long n = (long long)p * q;
+    int phi = EilerFunc(p) * EilerFunc(q);
     int e = getRandomNumber(5000, phi);
     while (NOD(phi, e) != 1)
         e = getRandomNumber(5000, phi);
     int d = modInverse(e, phi);
+
+    // Проверка корректности ключей
+    if (d == -1)
+    {
+        cerr << "Ошибка: не удалось вычислить обратный элемент для e" << endl;
+        return;
+    }
 
     string userpass, text;
     int choice, src;
@@ -160,7 +226,7 @@ void rsa(string &password)
     {
         try
         {
-            safeSystemCall(SYSTEM_CLEAR); // Используем из utils
+            safeSystemCall(SYSTEM_CLEAR);
             cout << "RSA\n1. Шифрование\n2. Дешифрование\n3. Выход\n> ";
             cin >> choice;
             if (cin.fail() || cin.peek() != '\n')
@@ -197,25 +263,48 @@ void rsa(string &password)
                     text = readFromFile(inputFile);
                 }
 
+                if (text.empty())
+                {
+                    throw logic_error("Текст для шифрования пуст");
+                }
+
                 string enc = rsa_encode(text, e, n);
                 string outputFile = getOutputFilename("RSAencrypted.txt", "шифрования");
                 writeToFile(outputFile, enc);
                 cout << "Зашифровано в " << outputFile << endl;
-                this_thread::sleep_for(chrono::milliseconds(2000));
+                cout << "Использованные ключи:\n";
+                cout << "e = " << e << "\nd = " << d << "\nn = " << n << endl;
+                this_thread::sleep_for(chrono::milliseconds(3000));
             }
             else
             {
-                int current_e = e, current_d = d, current_n = n;
+                int current_e = e;
+                int current_d = d;
+                long long current_n = n;
+
                 if (!getCustomKeys(current_e, current_d, current_n))
                 {
+                    // Используем ключи по умолчанию
                     current_e = e;
                     current_d = d;
                     current_n = n;
+                    cout << "Используются ключи по умолчанию" << endl;
                 }
 
                 string inputFile = getInputFilename("RSAencrypted.txt", "дешифрования");
                 string enc = readFromFile(inputFile);
+
+                if (enc.empty())
+                {
+                    throw logic_error("Файл для дешифрования пуст");
+                }
+
                 string dec = rsa_decode(enc, current_d, current_n);
+
+                if (dec.empty())
+                {
+                    throw logic_error("Результат дешифрования пуст - проверьте ключи");
+                }
 
                 string outputFile = getOutputFilename("RSAdecrypted.txt", "дешифрования");
                 writeToFile(outputFile, dec);
@@ -225,12 +314,9 @@ void rsa(string &password)
         }
         catch (const exception &e)
         {
-
             cerr << "Ошибка: " << e.what() << endl;
             clearInputBuffer();
             this_thread::sleep_for(chrono::milliseconds(2000));
-
-            cout << "";
         }
     }
 }

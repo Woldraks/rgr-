@@ -6,105 +6,55 @@
             "type": "shell",
             "command": "g++",
             "args": [
-                "-std=c++11",
-                "-Wall",
-                "-Wextra",
-                "-O2",
-                "-g",
+                "-shared",
+                "-fPIC",
                 "-o",
-                "${workspaceFolder}/rgr_program",
-                "${workspaceFolder}/main.cpp",
-                "${workspaceFolder}/utils.cpp",
-                "${workspaceFolder}/rsa.cpp",
-                "${workspaceFolder}/book_cipher.cpp",
-                "${workspaceFolder}/binary_cipher.cpp"
-            ],
-            "group": {
-                "kind": "build",
-                "isDefault": false
-            },
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared",
-                "showReuseMessage": false,
-                "clear": true
-            },
-            "problemMatcher": [
-                "$gcc"
-            ]
-        },
-        {
-            "label": "clean build",
-            "type": "shell",
-            "command": "rm",
-            "args": [
-                "-f",
-                "${workspaceFolder}/rgr_program"
-            ],
-            "group": "build",
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            }
-        },
-        {
-            "label": "build and run",
-            "type": "shell",
-            "command": "g++",
-            "args": [
-                "-std=c++11",
-                "-Wall",
-                "-Wextra",
-                "-O2",
-                "-g",
-                "-o",
-                "${workspaceFolder}/rgr_program",
-                "${workspaceFolder}/main.cpp",
-                "${workspaceFolder}/utils.cpp",
-                "${workspaceFolder}/rsa.cpp",
-                "${workspaceFolder}/book_cipher.cpp",
-                "${workspaceFolder}/binary_cipher.cpp",
+                "libutils.so",
+                "utils.cpp",
                 "&&",
-                "${workspaceFolder}/rgr_program"
-            ],
-            "group": "none",
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared",
-                "clear": true
-            },
-            "problemMatcher": [
-                "$gcc"
-            ]
-        },
-        {
-            "type": "cppbuild",
-            "label": "C/C++: g++ сборка активного файла",
-            "command": "/usr/bin/g++",
-            "args": [
-                "-fdiagnostics-color=always",
-                "-g",
-                "${file}",
+                "g++",
+                "-shared",
+                "-fPIC",
                 "-o",
-                "${fileDirname}/${fileBasenameNoExtension}"
-            ],
-            "options": {
-                "cwd": "${fileDirname}"
-            },
-            "problemMatcher": [
-                "$gcc"
+                "libbinary_cipher.so",
+                "binary_cipher.cpp",
+                "-L.",
+                "-lutils",
+                "&&",
+                "g++",
+                "-shared",
+                "-fPIC",
+                "-o",
+                "libbook_cipher.so",
+                "book_cipher.cpp",
+                "-L.",
+                "-lutils",
+                "&&",
+                "g++",
+                "-shared",
+                "-fPIC",
+                "-o",
+                "librsa.so",
+                "rsa.cpp",
+                "-L.",
+                "-lutils",
+                "&&",
+                "g++",
+                "-o",
+                "rgr_program",
+                "main.cpp",
+                "-L.",
+                "-lutils",
+                "-lbinary_cipher",
+                "-lbook_cipher",
+                "-lrsa",
+                "-Wl,-rpath,."
             ],
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
-            "detail": "Задача создана отладчиком."
+            "problemMatcher": []
         }
     ]
 }
