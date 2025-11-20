@@ -10,146 +10,237 @@
 #include <thread>
 #include <chrono>
 #include <random>
+#include <map>
 
 using namespace std;
 
-// Функция для определения длины UTF-8 символа по первому байту
-size_t get_utf8_char_length(unsigned char first_byte)
-{
-    if ((first_byte & 0x80) == 0x00)
-        return 1; // ASCII (1 байт)
-    if ((first_byte & 0xE0) == 0xC0)
-        return 2; // 2 байта
-    if ((first_byte & 0xF0) == 0xE0)
-        return 3; // 3 байта
-    if ((first_byte & 0xF8) == 0xF0)
-        return 4; // 4 байта
-    return 1;     // По умолчанию 1 байт
-}
+// ================= UTF-8 ⇄ Unicode =================
 
-// Функция для поиска ВСЕХ вхождений символа в книге
-vector<size_t> findAllSymbolPositions(const string &book, const string &symbol)
+vector<char32_t> utf8_to_ucs(const string &s)
 {
-    vector<size_t> positions;
-    size_t pos = 0;
-
-    while ((pos = book.find(symbol, pos)) != string::npos)
+    vector<char32_t> out;
+    size_t i = 0;
+    while (i < s.size())
     {
-        positions.push_back(pos);
-        pos += symbol.length();
-    }
+        unsigned char c = s[i];
+        char32_t cp = 0;
+        size_t len = 1;
 
-    return positions;
-}
-
-// Преобразует позицию в книге в координаты (строка, столбец)
-pair<int, int> positionToCoordinates(const string &book, size_t pos)
-{
-    int line = 1;
-    int col = 1;
-
-    for (size_t i = 0; i < pos && i < book.size(); ++i)
-    {
-        if (book[i] == '\n')
+        if (c <= 0x7F)
         {
-            line++;
-            col = 1;
+            cp = c;
+        }
+        else if ((c & 0xE0) == 0xC0 && i + 1 < s.size())
+        {
+            cp = ((c & 0x1F) << 6) | (s[i + 1] & 0x3F);
+            len = 2;
+        }
+        else if ((c & 0xF0) == 0xE0 && i + 2 < s.size())
+        {
+            cp = ((c & 0x0F) << 12) | ((s[i + 1] & 0x3F) << 6) | (s[i + 2] & 0x3F);
+            len = 3;
+        }
+        else if ((c & 0xF8) == 0xF0 && i + 3 < s.size())
+        {
+            cp = ((c & 0x07) << 18) | ((s[i + 1] & 0x3F) << 12) | ((s[i + 2] & 0x3F) << 6) | (s[i + 3] & 0x3F);
+            len = 4;
         }
         else
         {
-            col++;
+            cp = c;
         }
-    }
 
-    return make_pair(line, col);
+        out.push_back(cp);
+        i += len;
+    }
+    return out;
 }
 
-// Преобразует координаты в позицию в книге
-size_t coordinatesToPosition(const string &book, int line, int col)
+string ucs_to_utf8(char32_t cp)
 {
-    int current_line = 1;
-    int current_col = 1;
+    string out;
 
-    for (size_t i = 0; i < book.size(); ++i)
+    if (cp <= 0x7F)
     {
-        if (current_line == line && current_col == col)
-        {
-            return i;
-        }
-
-        if (book[i] == '\n')
-        {
-            current_line++;
-            current_col = 1;
-        }
-        else
-        {
-            current_col++;
-        }
+        out += char(cp);
+    }
+    else if (cp <= 0x7FF)
+    {
+        out += char(0xC0 | (cp >> 6));
+        out += char(0x80 | (cp & 0x3F));
+    }
+    else if (cp <= 0xFFFF)
+    {
+        out += char(0xE0 | (cp >> 12));
+        out += char(0x80 | ((cp >> 6) & 0x3F));
+        out += char(0x80 | (cp & 0x3F));
+    }
+    else
+    {
+        out += char(0xF0 | (cp >> 18));
+        out += char(0x80 | ((cp >> 12) & 0x3F));
+        out += char(0x80 | ((cp >> 6) & 0x3F));
+        out += char(0x80 | (cp & 0x3F));
     }
 
-    throw runtime_error("Координаты " + to_string(line) + ":" + to_string(col) + " не найдены в книге");
+    return out;
 }
+
+// ================= Проверки букв и регистр =================
+
+bool is_letter(char32_t c)
+{
+    // русские
+    if ((c >= 0x0410 && c <= 0x042F) ||
+        (c >= 0x0430 && c <= 0x044F) ||
+        c == 0x0401 || c == 0x0451)
+        return true;
+
+    // латиница
+    if ((c >= 'A' && c <= 'Z') ||
+        (c >= 'a' && c <= 'z'))
+        return true;
+
+    return false;
+}
+
+char32_t tolower_u(char32_t c)
+{
+    // русские
+    if (c >= 0x0410 && c <= 0x042F)
+        return c + 32;
+    if (c == 0x0401)
+        return 0x0451;
+
+    // латиница
+    if (c >= 'A' && c <= 'Z')
+        return c + 32;
+
+    return c;
+}
+
+// ================= Класс книжного шифра =================
+
+class BookCipherInternal
+{
+private:
+    vector<vector<char32_t>> book; // декодированные строки
+    bool ok = false;
+    mt19937 rng;
+
+public:
+    BookCipherInternal() : rng((unsigned)chrono::high_resolution_clock::now().time_since_epoch().count()) {}
+
+    bool load(const string &path)
+    {
+        ifstream f(path, ios::binary);
+        if (!f)
+        {
+            throw runtime_error("Не удалось открыть файл: " + path);
+        }
+
+        book.clear();
+        string line;
+
+        while (getline(f, line))
+        {
+            book.push_back(utf8_to_ucs(line));
+        }
+
+        if (book.empty())
+        {
+            throw runtime_error("Файл пуст: " + path);
+        }
+
+        ok = true;
+        return true;
+    }
+
+    vector<pair<int, int>> encrypt(const string &msg)
+    {
+        if (!ok)
+            throw runtime_error("Книга не загружена");
+
+        vector<char32_t> letters;
+        for (char32_t c : utf8_to_ucs(msg))
+        {
+            if (is_letter(c))
+                letters.push_back(tolower_u(c));
+        }
+
+        if (letters.empty())
+            throw runtime_error("В сообщении нет букв");
+
+        vector<pair<int, int>> out;
+        map<char32_t, vector<pair<int, int>>> index;
+
+        for (char32_t c : letters)
+        {
+            if (!index.count(c))
+            {
+                vector<pair<int, int>> pos;
+                for (int i = 0; i < (int)book.size(); i++)
+                {
+                    for (int j = 0; j < (int)book[i].size(); j++)
+                    {
+                        if (is_letter(book[i][j]) &&
+                            tolower_u(book[i][j]) == c)
+                            pos.emplace_back(i + 1, j + 1);
+                    }
+                }
+                if (pos.empty())
+                    throw runtime_error("Буква '" + ucs_to_utf8(c) + "' не найдена в книге");
+                index[c] = pos;
+            }
+
+            auto &arr = index[c];
+            out.push_back(arr[rng() % arr.size()]);
+        }
+
+        return out;
+    }
+
+    string decrypt(const vector<pair<int, int>> &coords)
+    {
+        if (!ok)
+            throw runtime_error("Книга не загружена");
+
+        string out;
+
+        for (auto &p : coords)
+        {
+            int line = p.first - 1;
+            int col = p.second - 1;
+
+            if (line < 0 || line >= (int)book.size())
+                throw runtime_error("Неверная строка: " + to_string(p.first));
+
+            if (col < 0 || col >= (int)book[line].size())
+                throw runtime_error("Неверная позиция: " + to_string(p.second));
+
+            out += ucs_to_utf8(book[line][col]);
+        }
+
+        return out;
+    }
+};
+
+// ================= Интерфейсные функции =================
 
 vector<pair<int, int>> book_encode(const string &txt, const string &bookPath)
 {
     vector<pair<int, int>> out;
 
-    // Загружаем книгу как ТЕКСТ
-    string book = readFromFile(bookPath);
-    if (book.empty())
-    {
-        throw runtime_error("Книга пуста: " + bookPath);
-    }
-
-    // Инициализируем генератор случайных чисел
-    random_device rd;
-    mt19937 gen(rd());
-
     cout << "=== ОТЛАДКА ШИФРОВАНИЯ ===" << endl;
     cout << "Сообщение для шифрования: '" << txt << "' (" << txt.size() << " байт)" << endl;
-    cout << "Размер книги: " << book.size() << " байт" << endl;
 
-    for (size_t i = 0; i < txt.size();)
+    BookCipherInternal cipher;
+    if (!cipher.load(bookPath))
     {
-        string symbol;
-
-        // Определяем размер символа (для UTF-8)
-        unsigned char first_byte = static_cast<unsigned char>(txt[i]);
-        size_t char_len = get_utf8_char_length(first_byte);
-
-        if (i + char_len <= txt.size())
-        {
-            symbol = txt.substr(i, char_len);
-        }
-        else
-        {
-            symbol = string(1, txt[i]);
-        }
-
-        i += symbol.length();
-
-        cout << "Ищем символ: '" << symbol << "' (" << symbol.length() << " байт) в книге..." << endl;
-
-        // Ищем ВСЕ позиции символа в книге
-        vector<size_t> positions = findAllSymbolPositions(book, symbol);
-
-        if (positions.empty())
-        {
-            throw runtime_error("Символ '" + symbol + "' не найден в книге");
-        }
-
-        // Выбираем СЛУЧАЙНУЮ позицию из найденных
-        uniform_int_distribution<size_t> dist(0, positions.size() - 1);
-        size_t random_pos = positions[dist(gen)];
-
-        // Преобразуем позицию в координаты
-        auto coords = positionToCoordinates(book, random_pos);
-        out.push_back(coords);
-
-        cout << "Найдено " << positions.size() << " вхождений" << endl;
-        cout << "Выбрана позиция " << random_pos << " -> координаты: " << coords.first << ":" << coords.second << endl;
+        throw runtime_error("Не удалось загрузить книгу: " + bookPath);
     }
+
+    out = cipher.encrypt(txt);
 
     cout << "=== ШИФРОВАНИЕ ЗАВЕРШЕНО ===" << endl;
     cout << "Получено " << out.size() << " координат" << endl;
@@ -161,53 +252,16 @@ string book_decode(const vector<pair<int, int>> &cipher, const string &bookPath)
 {
     string out;
 
-    // Загружаем книгу как ТЕКСТ
-    string book = readFromFile(bookPath);
-    if (book.empty())
-    {
-        throw runtime_error("Книга пуста: " + bookPath);
-    }
-
     cout << "=== ОТЛАДКА ДЕШИФРОВАНИЯ ===" << endl;
     cout << "Координат для дешифрования: " << cipher.size() << endl;
 
-    for (const auto &coord : cipher)
+    BookCipherInternal decoder;
+    if (!decoder.load(bookPath))
     {
-        try
-        {
-            cout << "Обрабатываем координаты: " << coord.first << ":" << coord.second << endl;
-
-            // Преобразуем координаты в позицию
-            size_t pos = coordinatesToPosition(book, coord.first, coord.second);
-
-            if (pos >= book.size())
-            {
-                throw runtime_error("Позиция выходит за границы книги");
-            }
-
-            // Определяем размер символа в этой позиции
-            string symbol;
-            unsigned char first_byte = static_cast<unsigned char>(book[pos]);
-            size_t char_len = get_utf8_char_length(first_byte);
-
-            if (pos + char_len <= book.size())
-            {
-                symbol = book.substr(pos, char_len);
-            }
-            else
-            {
-                symbol = string(1, book[pos]);
-            }
-
-            out += symbol;
-            cout << "Найден символ: '" << symbol << "'" << endl;
-        }
-        catch (const exception &e)
-        {
-            throw runtime_error("Не найдена позиция " + to_string(coord.first) +
-                                ":" + to_string(coord.second) + " в книге. " + e.what());
-        }
+        throw runtime_error("Не удалось загрузить книгу: " + bookPath);
     }
+
+    out = decoder.decrypt(cipher);
 
     cout << "=== ДЕШИФРОВАНИЕ ЗАВЕРШЕНО ===" << endl;
     cout << "Получено: '" << out << "'" << endl;

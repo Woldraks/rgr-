@@ -5,7 +5,6 @@
 
 extern const char *SYSTEM_CLEAR;
 
-// Добавляем std:: ко всем string
 void writeToFile(const std::string &filename, const std::string &content);
 std::string readFromFile(const std::string &filename);
 void clearInputBuffer();

@@ -8,8 +8,6 @@
 
 using namespace std;
 
-// Убираем повторное определение safeSystemCall, используем из utils.cpp
-
 int main()
 {
     string sysPass = "nstu", userSys, password = "nstu1";

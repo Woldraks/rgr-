@@ -10,8 +10,6 @@
 
 using namespace std;
 
-// УБИРАЕМ определение safeSystemCall отсюда
-
 string textToBinary(const string &text)
 {
     string binary;
@@ -57,7 +55,7 @@ string seq_encode(const string &txt)
     if (txt.empty())
         return "";
     string out;
-    out += txt[0];
+    out += txt[0]; // первый символ
 
     for (size_t i = 1; i < txt.size(); ++i)
     {
